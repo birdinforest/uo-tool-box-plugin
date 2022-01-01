@@ -1,10 +1,12 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.MemoryMappedFiles;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using CUO_API;
 
 namespace Assistant

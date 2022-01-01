@@ -14,6 +14,9 @@ namespace Assistant
         private static NamePipeServer _pipeServer;
 
         private static StreamBuffer _streamBuffer;
+        
+        // ID of transmitted data
+        private static int _id = -1;
 
         public static Thread[] Start()
         {
@@ -67,36 +70,31 @@ namespace Assistant
 
             try
             {
-                // Read the request from the client. Once the client has
-                // written to the pipe its security token will be available.
-                var ss = new StreamString(pipeServer);
+                _streamBuffer = new StreamBuffer(pipeServer);
 
                 // Verify our identity to the connected client using a
                 // string that the client anticipates.
 
-                ss.WriteString("I am the one true server!");
-                Console.WriteLine($"\n[Plugin][PipeServer]Send validation string.");
+                Log($"Send validation string.");
+                _streamBuffer.WriteString("Hello!");
 
-                string filename = ss.ReadString();
+                string filename = _streamBuffer.ReadString();
 
                 // Read in the ontents of the file while impersonating the client.
-                ReadFileToStream fileReader = new ReadFileToStream(ss, filename);
-
-                _streamBuffer = new StreamBuffer(pipeServer);
+                ReadFileToStream fileReader = new ReadFileToStream(_streamBuffer, filename);
 
                 // Display the name of the user we are imperonating.
-                Console.WriteLine("\n[Plugin][PipeServer]Reading file: {0} on thread{1} as user: {2}.",
-                    filename, threadId, pipeServer.GetImpersonationUserName());
+                Log($"Reading file: {filename} on thread {threadId} as user: {pipeServer.GetImpersonationUserName()}.");
                 pipeServer.RunAsClient(fileReader.Start);
 
-                var message = ss.ReadString();
-                Console.WriteLine("\n[Plugin][PipeServer]Receive message: {0}", message);
+                var message = _streamBuffer.ReadString();
+                Log($"Receive message: {message}");
             }
             // Catch the IOException that is raised if the pipe is broken
             // or disconnected.
             catch (Exception e)
             {
-                Console.WriteLine("\n[Plugin][PipeServer]ERROR: {0}. thread: {1}", e.Message, threadId);
+                Log($"ERROR: {e.Message}. thread: {threadId}");
             }
 
             // Console.WriteLine($"\n[Plugin][PipeServer]Closing pipeServer holding thread {threadId}.");
@@ -107,14 +105,11 @@ namespace Assistant
         {
             if (_streamBuffer == null)
             {
-                Console.WriteLine(
-                    $"\n[Plugin][PipeServer]Write buffer failed. Stream buffer handler has not been created.");
+                NamePipeServer.Log(
+                    "Write buffer failed. Stream buffer handler has not been created.");
                 return -1;
             }
 
-            Console.WriteLine($"\n[Plugin][PipeServer]Write buffer. Length: {data.Length}. ");
-            // $"\nData string: {DebugPrintBuffer(data)}" + 
-            // $"\nRaw data: {PrintByteArray(data)}");
             return _streamBuffer.Write(data);
         }
 
@@ -123,7 +118,7 @@ namespace Assistant
             return Encoding.Default.GetString(data);
         }
 
-        private static string PrintByteArray(byte[] bytes)
+        public static string PrintByteArray(byte[] bytes)
         {
             var sb = new StringBuilder("byte[] { ");
             foreach (var b in bytes)
@@ -134,95 +129,103 @@ namespace Assistant
             sb.Append("}");
             return sb.ToString();
         }
-    }
 
-    // Defines the data protocol for reading and writing strings on our stream
-    public class StreamString
-    {
-        private Stream ioStream;
-        private UnicodeEncoding streamEncoding;
-
-        public StreamString(Stream ioStream)
+        public static void Log(string message)
         {
-            this.ioStream = ioStream;
-            streamEncoding = new UnicodeEncoding();
+            Console.WriteLine($"[UTB-Plug\t| PipeServer] {message}");
         }
 
-        public string ReadString()
+        public static int GenerateDataId()
         {
-            int len = 0;
+            ++_id;
+            if (_id >= UInt16.MaxValue)
+                _id = 0;
 
-            len = ioStream.ReadByte() * 256;
-            len += ioStream.ReadByte();
-            byte[] inBuffer = new byte[len];
-            ioStream.Read(inBuffer, 0, len);
-
-            Console.WriteLine("\n[Plugin][PipeServer]Read length: " + len);
-
-            return streamEncoding.GetString(inBuffer);
-        }
-
-        public int WriteString(string outString)
-        {
-            byte[] outBuffer = streamEncoding.GetBytes(outString);
-            int len = outBuffer.Length;
-            if (len > UInt16.MaxValue)
-            {
-                len = (int) UInt16.MaxValue;
-            }
-
-            Console.WriteLine("\n[Plugin][PipeServer]Write length: " + len);
-            ioStream.WriteByte((byte) (len / 256));
-            ioStream.WriteByte((byte) (len & 255));
-            ioStream.Write(outBuffer, 0, len);
-            ioStream.Flush();
-
-            return outBuffer.Length + 2;
+            return _id;
         }
     }
 
     public class StreamBuffer
     {
         private Stream ioStream;
+        private UnicodeEncoding streamEncoding;
 
         public StreamBuffer(Stream ioStream)
         {
             this.ioStream = ioStream;
+            streamEncoding = new UnicodeEncoding();
         }
 
         public byte[] Read()
         {
-            int len = 0;
+            
+            int id = -1;
+            
+            var result = ioStream.ReadByte();
+            if (result == -1) return new byte[] { };
+            id = result * 256;
+            
+            result = ioStream.ReadByte();
+            if (result == -1) return new byte[] { };
+            id += result;
 
-            len = ioStream.ReadByte() * 256;
-            len += ioStream.ReadByte();
+            int len;
+            result = ioStream.ReadByte();
+            if (result == -1) return new byte[] { };
+            len = result * 256;
+
+            result = ioStream.ReadByte();
+            if (result == -1) return new byte[] { };
+            len += result;
+            
             byte[] inBuffer = new byte[len];
             ioStream.Read(inBuffer, 0, len);
 
+            NamePipeServer.Log($"|Read\t| id: {id}. len:{len}");
+                
             return inBuffer;
+        }
+        
+        public string ReadString()
+        {
+            var inBuffer = Read();
+            return inBuffer.Length == 0 
+                ? "" 
+                : streamEncoding.GetString(inBuffer);
         }
 
         public int Write(byte[] outBuffer)
         {
+            var id = NamePipeServer.GenerateDataId();
+            
             int len = outBuffer.Length;
+            
+            // Set size limit to 65535
             if (len > UInt16.MaxValue)
             {
                 len = (int) UInt16.MaxValue;
             }
 
-            try
-            {
-                ioStream.WriteByte((byte) (len / 256));
-                ioStream.WriteByte((byte) (len & 255));
-                ioStream.Write(outBuffer, 0, len);
-                ioStream.Flush();
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine($"\n[Plugin][PipeServer]StreamBuffer.Write. Error: {e.Message}.");
-            }
+            NamePipeServer.Log($"|Write\t| id: {id}, len: {len}");
+            
+            ioStream.WriteByte((byte) (id / 256));
+            ioStream.WriteByte((byte) (id & 255));
+            
+            ioStream.WriteByte((byte) (len / 256));
+            ioStream.WriteByte((byte) (len & 255));
+            
+            ioStream.Write(outBuffer, 0, len);
+            
+            ioStream.Flush();
 
             return outBuffer.Length + 2;
+        }
+        
+        public int WriteString(string outString)
+        {
+            byte[] outBuffer = streamEncoding.GetBytes(outString);
+
+            return Write(outBuffer);
         }
     }
 
@@ -230,19 +233,19 @@ namespace Assistant
     public class ReadFileToStream
     {
         private string fn;
-        private StreamString ss;
+        private StreamBuffer streamBuffer;
 
-        public ReadFileToStream(StreamString str, string filename)
+        public ReadFileToStream(StreamBuffer str, string filename)
         {
             fn = filename;
-            ss = str;
+            streamBuffer = str;
         }
 
         public void Start()
         {
             string contents = File.ReadAllText(fn);
-            ss.WriteString(contents);
-            Console.WriteLine("[Plugin][PipeServer]Send content of given filename.");
+            streamBuffer.WriteString(contents);
+            NamePipeServer.Log("Send content of given filename.");
         }
     }
 }
