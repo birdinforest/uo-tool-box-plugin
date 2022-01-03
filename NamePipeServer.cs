@@ -4,6 +4,7 @@ using System.IO.Pipes;
 using System.Net.WebSockets;
 using System.Text;
 using System.Threading;
+using Assistant.Utility;
 
 namespace Assistant
 {
@@ -132,7 +133,7 @@ namespace Assistant
 
         public static void Log(string message)
         {
-            Console.WriteLine($"[UTB-Plug\t| PipeServer] {message}");
+            Logger.Log(Logger.Module.PipeServer, message);
         }
 
         public static int GenerateDataId()
