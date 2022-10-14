@@ -38,12 +38,19 @@ namespace Assistant
         
         private static unsafe void KeepingAlive()
         {
+            Process[] processes = Process.GetProcessesByName("UOToolBox");
+            if (processes != null && processes.Length > 0)
+            {
+                processes[0].Kill();
+                Console.WriteLine($"[Plugin] Kill processes[0]: {processes[0]}");
+            }
+
             _process.StartInfo.FileName = "/Users/forrrest/projects/UOToolBox/bin/Debug/net6.0/UOToolBox";  
             // _process.StartInfo.CreateNoWindow = true;  
             _process.Start();
             
             Console.WriteLine($"[Plugin] Engine._process: {Engine._process}");
-            Process[] processes = Process.GetProcessesByName("UOToolBox");
+            processes = Process.GetProcessesByName("UOToolBox");
             if (processes != null && processes.Length > 0)
             {
                 Console.WriteLine($"[Plugin] processes[0]: {processes[0]}");
