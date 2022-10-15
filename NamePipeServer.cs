@@ -111,6 +111,8 @@ namespace Assistant
                 return -1;
             }
 
+            Logger.Log(Logger.Module.PipeServer, PrintByteArray(data));
+
             return _streamBuffer.Write(data);
         }
 
